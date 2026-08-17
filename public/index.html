@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Alumni Referral & Career Path Network</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #171a21;
+    --border: #2a2e37;
+    --accent: #7c5cff;
+    --text: #e8e9ed;
+    --muted: #9297a3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 40px 20px;
+  }
+  .container { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  p.subtitle { color: var(--muted); margin-top: 0; margin-bottom: 28px; font-size: 14px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  input {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: #0d0f13;
+    color: var(--text);
+    font-size: 14px;
+    margin-bottom: 12px;
+  }
+  button {
+    background: var(--accent);
+    border: none;
+    color: white;
+    padding: 10px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .result-item {
+    padding: 10px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .result-item:hover { background: #1d212a; }
+  .result-item:last-child { border-bottom: none; }
+  .empty, .loading, .error {
+    color: var(--muted);
+    font-size: 13px;
+    padding: 8px 0;
+  }
+  .error { color: #ff6b6b; }
+  .selected-person {
+    background: #1d212a;
+    padding: 10px;
+    border-radius: 6px;
+    margin-bottom: 14px;
+    font-size: 14px;
+  }
+  .path-step, .overlap-item {
+    display: inline-block;
+    background: #232733;
+    padding: 4px 10px;
+    border-radius: 14px;
+    margin: 3px 4px 3px 0;
+    font-size: 13px;
+  }
+  .arrow { color: var(--muted); margin: 0 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Alumni Referral & Career Path Network</h1>
+  <p class="subtitle">Search a person, find shortest path to a company, or see skill overlap</p>
+
+  <div class="card">
+    <label>Search person by name</label>
+    <input id="searchInput" placeholder="e.g. a" />
+    <button id="searchBtn">Search</button>
+    <div id="searchResults" style="margin-top:12px;"></div>
+  </div>
+
+  <div class="card" id="personCard" style="display:none;">
+    <div id="selectedPersonInfo" class="selected-person"></div>
+
+    <label>Find path to company</label>
+    <input id="companyInput" placeholder="e.g. Google" />
+    <button id="pathBtn">Find Path</button>
+    <div id="pathResult" style="margin-top:12px;"></div>
+
+    <div style="margin-top:20px;">
+      <button id="overlapBtn">Show Skill Overlap</button>
+      <div id="overlapResult" style="margin-top:12px;"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let selectedPersonId = null;
+
+  const searchInput = document.getElementById('searchInput');
+  const searchBtn = document.getElementById('searchBtn');
+  const searchResults = document.getElementById('searchResults');
+  const personCard = document.getElementById('personCard');
+  const selectedPersonInfo = document.getElementById('selectedPersonInfo');
+  const companyInput = document.getElementById('companyInput');
+  const pathBtn = document.getElementById('pathBtn');
+  const pathResult = document.getElementById('pathResult');
+  const overlapBtn = document.getElementById('overlapBtn');
+  const overlapResult = document.getElementById('overlapResult');
+
+  async function searchPeople() {
+    const q = searchInput.value.trim();
+    if (!q) return;
+    searchResults.innerHTML = '<div class="loading">Searching...</div>';
+    searchBtn.disabled = true;
+    try {
+      const res = await fetch(`/api/people/search?name=${encodeURIComponent(q)}`);
+      if (!res.ok) throw new Error('Server error: ' + res.status);
+      const data = await res.json();
+      if (!data.length) {
+        searchResults.innerHTML = '<div class="empty">No matches found. Try a different name.</div>';
+        return;
+      }
+      searchResults.innerHTML = '';
+      data.forEach(person => {
+        const div = document.createElement('div');
+        div.className = 'result-item';
+        div.textContent = `${person.name}${person.role ? ' — ' + person.role : ''}`;
+        div.onclick = () => selectPerson(person);
+        searchResults.appendChild(div);
+      });
+    } catch (err) {
+      searchResults.innerHTML = `<div class="error">Couldn't reach the server. Is the backend running? (${err.message})</div>`;
+    } finally {
+      searchBtn.disabled = false;
+    }
+  }
+
+  function selectPerson(person) {
+    selectedPersonId = person.id;
+    selectedPersonInfo.textContent = `Selected: ${person.name}${person.role ? ' (' + person.role + ')' : ''}`;
+    personCard.style.display = 'block';
+    pathResult.innerHTML = '';
+    overlapResult.innerHTML = '';
+  }
+
+  async function findPath() {
+    const company = companyInput.value.trim();
+    if (!company || !selectedPersonId) return;
+    pathResult.innerHTML = '<div class="loading">Finding path...</div>';
+    pathBtn.disabled = true;
+    try {
+      const res = await fetch(`/api/people/path/${encodeURIComponent(selectedPersonId)}/${encodeURIComponent(company)}`);
+      if (!res.ok) throw new Error('Server error: ' + res.status);
+      const data = await res.json();
+      if (!data || !data.found || !data.chain || !data.chain.length) {
+        pathResult.innerHTML = `<div class="empty">No connection path found to ${company}.</div>`;
+        return;
+      }
+      const chainHtml = data.chain.map((name, i) =>
+        `<span class="path-step">${name}</span>${i < data.chain.length - 1 ? '<span class="arrow">→</span>' : ''}`
+      ).join('');
+      pathResult.innerHTML = `<div style="margin-bottom:8px; font-size:13px; color:var(--muted);">${data.hops} hop(s) to ${data.targetCompany}</div>` + chainHtml;
+    } catch (err) {
+      pathResult.innerHTML = `<div class="error">${err.message}</div>`;
+    } finally {
+      pathBtn.disabled = false;
+    }
+  }
+
+  async function showOverlap() {
+    if (!selectedPersonId) return;
+    overlapResult.innerHTML = '<div class="loading">Loading overlap...</div>';
+    overlapBtn.disabled = true;
+    try {
+      const res = await fetch(`/api/people/skills/overlap/${encodeURIComponent(selectedPersonId)}`);
+      if (!res.ok) throw new Error('Server error: ' + res.status);
+      const data = await res.json();
+      if (!data || !data.length) {
+        overlapResult.innerHTML = '<div class="empty">No skill overlaps found.</div>';
+        return;
+      }
+      overlapResult.innerHTML = data.map(p =>
+        `<span class="overlap-item">${p.name} (${p.role}) — ${p.overlap} shared: ${p.sharedSkills.join(', ')}</span>`
+      ).join('<br>');
+    } catch (err) {
+      overlapResult.innerHTML = `<div class="error">${err.message}</div>`;
+    } finally {
+      overlapBtn.disabled = false;
+    }
+  }
+
+  searchBtn.addEventListener('click', searchPeople);
+  searchInput.addEventListener('keypress', e => { if (e.key === 'Enter') searchPeople(); });
+  pathBtn.addEventListener('click', findPath);
+  companyInput.addEventListener('keypress', e => { if (e.key === 'Enter') findPath(); });
+  overlapBtn.addEventListener('click', showOverlap);
+</script>
+</body>
+</html>
